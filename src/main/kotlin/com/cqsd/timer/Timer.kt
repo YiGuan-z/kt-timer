@@ -49,12 +49,16 @@ class Timer {
     }
 
     /**
+     * 添加一个设定的工作
      * @throws RuntimeException 当[start]方法调用后，该对象就会进行封闭操作，不可再向内部写入工作。
      */
     fun addJob(unit: TimeUnit, time: Long, job: MJob): JobId {
         return push(VarPair(unit.toMillis(time), true) to VarPair(job, null))
     }
 
+    /**
+     * 给定一个id，用于取消该定时任务的工作
+     */
     fun cancel(id: JobId) {
         synchronized(jobQueue) {
             val job = runCatching { jobQueue[id] }.getOrNull()
@@ -65,6 +69,21 @@ class Timer {
         }
     }
 
+    /**
+     * 重新给一个任务设定工作时间
+     * @throws RuntimeException 任务id找不到对应任务时
+     */
+    fun changeJobTime(jobId: JobId, unit: TimeUnit, time: Long) {
+        synchronized(jobQueue) {
+            val job = jobQueue[jobId]
+            requireNotNull(job) { "通过$jobId 无法找到对应的工作！！！" }
+            job.first.first = unit.toMillis(time)
+        }
+    }
+
+    /**
+     * 启动定时器
+     */
     suspend fun start() {
         startFlag = true
         withContext(Dispatchers.IO) {
@@ -81,16 +100,35 @@ class Timer {
         }
     }
 
-
+    /**
+     * 取消里面的所有任务
+     */
     fun cancelAll() {
-        for (pair in jobQueue) {
-            if (pair == null) continue
-            val (conf, job) = pair
-            val (_, flag) = conf
-            if (flag) {
-                conf.second = false
-                job.second!!.cancel()
+        synchronized(jobQueue) {
+            for (pair in jobQueue) {
+                if (pair == null) continue
+                val (conf, job) = pair
+                val (_, flag) = conf
+                if (flag) {
+                    conf.second = false
+                    job.second!!.cancel()
+                }
             }
+        }
+    }
+
+    /**
+     * 清除里面的所有任务
+     */
+    fun clear() {
+        synchronized(jobQueue) {
+            cancelAll()
+            for (i in 0..jobQueue.lastIndex) {
+                if (jobQueue[i] != null) {
+                    jobQueue[i] = null
+                }
+            }
+            startFlag = false
         }
     }
 }
